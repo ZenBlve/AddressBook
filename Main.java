@@ -1,16 +1,12 @@
-import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.io.PrintWriter;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
 import java.util.Scanner;
 
 public class Main {
-    private final List<Contact> contacts = new ArrayList<>();
+    private final AddressBook book = new AddressBook();
+    private final ContactStorage storage = new ContactStorage("contacts.csv");
+    private final ContactSearch search = new ContactSearch(book);
+    private final ReportService reports = new ReportService(book);
     private final Scanner scanner = new Scanner(System.in);
-    private final String FILE_NAME = "contacts.csv";
 
     public static void main(String[] args) {
         new Main().run();
@@ -29,7 +25,7 @@ public class Main {
                 case "5" -> listContacts();
                 case "6" -> searchContacts();
                 case "7" -> filterContacts();
-                case "8" -> reports();
+                case "8" -> showReports();
                 case "9" -> saveToFile();
                 case "10" -> loadFromFile();
                 case "0" -> running = false;
@@ -59,18 +55,15 @@ public class Main {
     private void addContact() {
         Contact contact = new Contact();
 
-        contact.type = chooseType();
-        contact.name = promptRequired("Name: ");
-        contact.email = prompt("Email: ");
-        contact.phone = prompt("Phone: ");
-        contact.city = prompt("City: ");
-        contact.group = prompt("Group: ");
+        contact.setType(chooseType());
+        contact.setName(promptRequired("Name: "));
+        contact.setEmail(prompt("Email: "));
+        contact.setPhone(prompt("Phone: "));
+        contact.setCity(prompt("City: "));
+        contact.setGroup(prompt("Group: "));
+        contact.getTags().addAll(AddressBook.parseTags(prompt("Tags (comma separated): ")));
 
-        String tagsInput = prompt("Tags (comma separated): ");
-        contact.tags.addAll(parseTags(tagsInput));
-
-        contacts.add(contact);
-
+        book.add(contact);
         System.out.println("Contact added.");
     }
 
@@ -82,21 +75,21 @@ public class Main {
 
         System.out.println("Press Enter to keep the current value.");
 
-        String type = prompt("Type (" + contact.type + "): ");
+        String type = prompt("Type (" + contact.getType() + "): ");
         if (!type.isBlank()) {
-            contact.type = normalizeType(type);
+            contact.setType(AddressBook.normalizeType(type));
         }
 
-        contact.name = updateField("Name", contact.name);
-        contact.email = updateField("Email", contact.email);
-        contact.phone = updateField("Phone", contact.phone);
-        contact.city = updateField("City", contact.city);
-        contact.group = updateField("Group", contact.group);
+        contact.setName(updateField("Name", contact.getName()));
+        contact.setEmail(updateField("Email", contact.getEmail()));
+        contact.setPhone(updateField("Phone", contact.getPhone()));
+        contact.setCity(updateField("City", contact.getCity()));
+        contact.setGroup(updateField("Group", contact.getGroup()));
 
-        String tagsInput = prompt("Tags (" + contact.tags + "): ");
+        String tagsInput = prompt("Tags (" + contact.getTags() + "): ");
         if (!tagsInput.isBlank()) {
-            contact.tags.clear();
-            contact.tags.addAll(parseTags(tagsInput));
+            contact.getTags().clear();
+            contact.getTags().addAll(AddressBook.parseTags(tagsInput));
         }
 
         System.out.println("Contact updated.");
@@ -108,7 +101,7 @@ public class Main {
             return;
         }
 
-        contacts.remove(contact);
+        book.remove(contact);
         System.out.println("Contact deleted.");
     }
 
@@ -120,45 +113,36 @@ public class Main {
     }
 
     private void listContacts() {
-        if (contacts.isEmpty()) {
+        if (book.isEmpty()) {
             System.out.println("No contacts found.");
             return;
         }
 
-        for (int i = 0; i < contacts.size(); i++) {
-            Contact contact = contacts.get(i);
-            System.out.printf("%d. %s [%s]%n", i + 1, contact.name, contact.type);
+        for (int i = 0; i < book.size(); i++) {
+            Contact contact = book.get(i);
+            System.out.printf("%d. %s [%s]%n", i + 1, contact.getName(), contact.getType());
         }
-    }https://github.com/ZenBlve/AddressBook/blob/main/Main.java
+    }
 
     private Contact selectContact(String action) {
-        if (contacts.isEmpty()) {
+        if (book.isEmpty()) {
             System.out.println("No contacts available.");
             return null;
         }
 
         listContacts();
         int index = parseIndex(prompt("Enter contact number to " + action + ": "));
-        if (index < 0 || index >= contacts.size()) {
+        if (index < 0 || index >= book.size()) {
             System.out.println("Invalid contact number.");
             return null;
         }
 
-        return contacts.get(index);
+        return book.get(index);
     }
 
     private String chooseType() {
         System.out.println("Types: Person, Business, Vendor, Emergency");
-        return normalizeType(promptRequired("Type: "));
-    }
-
-    private String normalizeType(String value) {
-        return switch (value.trim().toLowerCase(Locale.ROOT)) {
-            case "business" -> "Business";
-            case "vendor" -> "Vendor";
-            case "emergency" -> "Emergency";
-            default -> "Person";
-        };
+        return AddressBook.normalizeType(promptRequired("Type: "));
     }
 
     private String updateField(String label, String currentValue) {
@@ -189,23 +173,7 @@ public class Main {
     }
 
     private void searchContacts() {
-        String keyword = prompt("Search by name/email/phone: ").toLowerCase();
-
-        boolean found = false;
-
-        for (Contact contact : contacts) {
-            if (contact.name.toLowerCase().contains(keyword)
-                    || contact.email.toLowerCase().contains(keyword)
-                    || contact.phone.toLowerCase().contains(keyword)) {
-
-                System.out.println(contact.details());
-                found = true;
-            }
-        }
-
-        if (!found) {
-            System.out.println("No matching contacts.");
-        }
+        search.searchByKeyword(prompt("Search by name/email/phone: "));
     }
 
     private void filterContacts() {
@@ -215,176 +183,32 @@ public class Main {
         System.out.println("3. Tag");
         System.out.println("4. Group");
 
-        String choice = prompt("Choose: ");
-
-        boolean found = false;
-
-        switch (choice) {
-            case "1" -> {
-                String type = prompt("Type: ");
-
-                for (Contact contact : contacts) {
-                    if (contact.type.equalsIgnoreCase(type)) {
-                        System.out.println(contact.details());
-                        found = true;
-                    }
-                }
-            }
-
-            case "2" -> {
-                String city = prompt("City: ");
-
-                for (Contact contact : contacts) {
-                    if (contact.city.equalsIgnoreCase(city)) {
-                        System.out.println(contact.details());
-                        found = true;
-                    }
-                }
-            }
-
-            case "3" -> {
-                String tag = prompt("Tag: ");
-
-                for (Contact contact : contacts) {
-                    for (String currentTag : contact.tags) {
-                        if (currentTag.trim().equalsIgnoreCase(tag)) {
-                            System.out.println(contact.details());
-                            found = true;
-                        }
-                    }
-                }
-            }
-
-            case "4" -> {
-                String group = prompt("Group: ");
-
-                for (Contact contact : contacts) {
-                    if (contact.group.equalsIgnoreCase(group)) {
-                        System.out.println(contact.details());
-                        found = true;
-                    }
-                }
-            }
-
+        switch (prompt("Choose: ")) {
+            case "1" -> search.filterByType(prompt("Type: "));
+            case "2" -> search.filterByCity(prompt("City: "));
+            case "3" -> search.filterByTag(prompt("Tag: "));
+            case "4" -> search.filterByGroup(prompt("Group: "));
             default -> System.out.println("Invalid filter.");
-        }
-
-        if (!found) {
-            System.out.println("No matching contacts.");
         }
     }
 
-    private void reports() {
+    private void showReports() {
         System.out.println("Reports:");
         System.out.println("1. List contacts by type");
         System.out.println("2. Show contacts missing email or phone");
         System.out.println("3. Display group summaries");
 
-        String choice = prompt("Choose: ");
-
-        switch (choice) {
-            case "1" -> reportByType();
-            case "2" -> reportMissingInfo();
-            case "3" -> reportGroups();
+        switch (prompt("Choose: ")) {
+            case "1" -> reports.reportByType();
+            case "2" -> reports.reportMissingInfo();
+            case "3" -> reports.reportGroups();
             default -> System.out.println("Invalid report.");
-        }
-    }
-
-    private void reportByType() {
-        System.out.println("Person contacts:");
-        printContactsOfType("Person");
-
-        System.out.println("Business contacts:");
-        printContactsOfType("Business");
-
-        System.out.println("Vendor contacts:");
-        printContactsOfType("Vendor");
-
-        System.out.println("Emergency contacts:");
-        printContactsOfType("Emergency");
-    }
-
-    private void printContactsOfType(String type) {
-        boolean found = false;
-
-        for (Contact contact : contacts) {
-            if (contact.type.equalsIgnoreCase(type)) {
-                System.out.println(contact.details());
-                found = true;
-            }
-        }
-
-        if (!found) {
-            System.out.println("No contacts found.");
-        }
-    }
-
-    private void reportMissingInfo() {
-        boolean found = false;
-
-        for (Contact contact : contacts) {
-            if (contact.email.isBlank() || contact.phone.isBlank()) {
-                System.out.println(contact.details());
-                found = true;
-            }
-        }
-
-        if (!found) {
-            System.out.println("No contacts missing email or phone.");
-        }
-    }
-
-    private void reportGroups() {
-        List<String> groups = new ArrayList<>();
-
-        for (Contact contact : contacts) {
-            String group = contact.group;
-
-            if (group.isBlank()) {
-                group = "No Group";
-            }
-
-            if (!groups.contains(group)) {
-                groups.add(group);
-            }
-        }
-
-        for (String group : groups) {
-            int count = 0;
-
-            for (Contact contact : contacts) {
-                String currentGroup = contact.group;
-
-                if (currentGroup.isBlank()) {
-                    currentGroup = "No Group";
-                }
-
-                if (currentGroup.equals(group)) {
-                    count++;
-                }
-            }
-
-            System.out.println(group + ": " + count + " contact(s)");
         }
     }
 
     private void saveToFile() {
         try {
-            PrintWriter writer = new PrintWriter(new FileWriter(FILE_NAME));
-
-            for (Contact contact : contacts) {
-                writer.println(
-                        contact.type + "," +
-                        contact.name + "," +
-                        contact.email + "," +
-                        contact.phone + "," +
-                        contact.city + "," +
-                        contact.group + "," +
-                        String.join(";", contact.tags)
-                );
-            }
-
-            writer.close();
+            storage.save(book);
             System.out.println("Contacts saved.");
         } catch (IOException e) {
             System.out.println("Could not save contacts.");
@@ -393,95 +217,10 @@ public class Main {
 
     private void loadFromFile() {
         try {
-            File file = new File(FILE_NAME);
-
-            if (!file.exists()) {
-                System.out.println("No saved file found.");
-                return;
-            }
-
-            Scanner fileReader = new Scanner(file);
-            contacts.clear();
-
-            while (fileReader.hasNextLine()) {
-                String line = fileReader.nextLine();
-                String[] parts = line.split(",", -1);
-
-                if (parts.length >= 7) {
-                    Contact contact = new Contact();
-
-                    contact.type = parts[0];
-                    contact.name = parts[1];
-                    contact.email = parts[2];
-                    contact.phone = parts[3];
-                    contact.city = parts[4];
-                    contact.group = parts[5];
-
-                    if (!parts[6].isBlank()) {
-                        String[] tags = parts[6].split(";");
-
-                        for (String tag : tags) {
-                            contact.tags.add(tag);
-                        }
-                    }
-
-                    contacts.add(contact);
-                }
-            }
-
-            fileReader.close();
+            storage.load(book);
             System.out.println("Contacts loaded.");
         } catch (IOException e) {
-            System.out.println("Could not load contacts.");
-        }
-    }
-
-    private List<String> parseTags(String input) {
-        List<String> tags = new ArrayList<>();
-
-        if (!input.isBlank()) {
-            String[] parts = input.split(",");
-
-            for (String part : parts) {
-                String tag = part.trim();
-
-                if (!tag.isBlank()) {
-                    tags.add(tag);
-                }
-            }
-        }
-
-        return tags;
-    }
-
-    private static class Contact {
-        String type = "Person";
-        String name = "";
-        String email = "";
-        String phone = "";
-        String city = "";
-        String group = "";
-
-        List<String> tags = new ArrayList<>();
-
-        String details() {
-            return """
-                    Name: %s
-                    Type: %s
-                    Email: %s
-                    Phone: %s
-                    City: %s
-                    Group: %s
-                    Tags: %s
-                    """.formatted(
-                    name,
-                    type,
-                    email,
-                    phone,
-                    city,
-                    group,
-                    tags
-            );
+            System.out.println("No saved file found.");
         }
     }
 }
